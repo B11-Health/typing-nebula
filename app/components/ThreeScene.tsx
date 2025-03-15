@@ -199,10 +199,10 @@ const ThreeScene: React.FC<ThreeSceneProps> = ({
       emissive: 0x00aa00,
       shininess: 100,
     });
-    const healthBar = new THREE.Mesh(healthBarGeometry, healthBarMaterial);
-    healthBar.position.set(0, 4.5, 0);
-    healthBarRef.current = healthBar;
-    scene.add(healthBar);
+    // const healthBar = new THREE.Mesh(healthBarGeometry, healthBarMaterial);
+    // healthBar.position.set(0, 4.5, 0);
+    // healthBarRef.current = healthBar;
+    // scene.add(healthBar);
 
     const flashGeometry = new THREE.PlaneGeometry(20, 20);
     const flashMaterial = new THREE.MeshBasicMaterial({
