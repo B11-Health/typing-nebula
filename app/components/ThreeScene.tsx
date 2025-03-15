@@ -52,7 +52,6 @@ const ThreeScene: React.FC<ThreeSceneProps> = ({
   const explosionSoundRef = useRef<THREE.Audio | null>(null);
   const bulletSoundRef = useRef<THREE.Audio | null>(null);
   const animationFrameIdRef = useRef<number>(0);
-  const healthBarRef = useRef<THREE.Mesh | null>(null);
   const flashPlaneRef = useRef<THREE.Mesh | null>(null);
   const flashTimeRef = useRef(0);
 
@@ -101,16 +100,22 @@ const ThreeScene: React.FC<ThreeSceneProps> = ({
     charQueueRef.current = [];
     difficultyRef.current = { fallingSpeed: 0.02, spawnInterval: 3000, comboMultiplier: 1 };
     comboCountRef.current = 0;
-    healthRef.current = 100; // Reset health to full
+    healthRef.current = 100;
     if (spawnTimeoutRef.current) {
       clearTimeout(spawnTimeoutRef.current);
       spawnTimeoutRef.current = null;
     }
     shakeTimeRef.current = 0;
     shakeAmplitudeRef.current = 0;
-    flashTimeRef.current = 0;
     
-    // Reset camera position if it was affected by shake
+    // Explicitly reset flash plane
+    flashTimeRef.current = 0;
+    if (flashPlaneRef.current) {
+      const flashMaterial = flashPlaneRef.current.material as THREE.MeshBasicMaterial;
+      flashMaterial.opacity = 0; // Ensure tint is fully removed
+    }
+
+    // Reset camera position
     if (cameraRef.current) {
       cameraRef.current.position.set(0, 0, 10);
     }
@@ -193,17 +198,6 @@ const ThreeScene: React.FC<ThreeSceneProps> = ({
     pointLight2.position.set(-5, 5, 5);
     scene.add(pointLight2);
 
-    const healthBarGeometry = new THREE.PlaneGeometry(8, 0.5);
-    const healthBarMaterial = new THREE.MeshPhongMaterial({
-      color: 0x00ff00,
-      emissive: 0x00aa00,
-      shininess: 100,
-    });
-    // const healthBar = new THREE.Mesh(healthBarGeometry, healthBarMaterial);
-    // healthBar.position.set(0, 4.5, 0);
-    // healthBarRef.current = healthBar;
-    // scene.add(healthBar);
-
     const flashGeometry = new THREE.PlaneGeometry(20, 20);
     const flashMaterial = new THREE.MeshBasicMaterial({
       color: 0xff0000,
@@ -232,7 +226,7 @@ const ThreeScene: React.FC<ThreeSceneProps> = ({
       if (animationFrameIdRef.current) cancelAnimationFrame(animationFrameIdRef.current);
       if (spawnTimeoutRef.current) clearTimeout(spawnTimeoutRef.current);
       if (mountRef.current) mountRef.current.innerHTML = '';
-      resetScene(); // Ensure cleanup on unmount
+      resetScene();
     };
   }, []);
 
@@ -292,7 +286,7 @@ const ThreeScene: React.FC<ThreeSceneProps> = ({
 
   /** Game Logic */
   useEffect(() => {
-    resetScene(); // Always reset scene when dependencies change
+    resetScene();
 
     if (!gameStarted) return;
 
@@ -301,7 +295,6 @@ const ThreeScene: React.FC<ThreeSceneProps> = ({
     const renderer = rendererRef.current;
     if (!scene || !camera || !renderer) return;
 
-    // Load sounds only when game starts
     if (!backgroundMusicRef.current) {
       const audioLoader = new THREE.AudioLoader();
       const listener = camera.children.find(
@@ -543,20 +536,6 @@ const ThreeScene: React.FC<ThreeSceneProps> = ({
         flashTimeRef.current = 0.1;
         if (explosionSoundRef.current) explosionSoundRef.current.play();
       });
-
-      if (healthBarRef.current) {
-        const healthScale = healthRef.current / 100;
-        healthBarRef.current.scale.x = healthScale;
-        healthBarRef.current.position.x = (healthScale - 1) * 4;
-        const material = healthBarRef.current.material as THREE.MeshPhongMaterial;
-        material.color.setHSL(healthRef.current / 300, 1, 0.5);
-        material.emissive.setHSL(healthRef.current / 300, 1, 0.3);
-        if (healthRef.current < 30) {
-          material.emissiveIntensity = 1 + Math.sin(time * 0.01) * 0.5;
-        } else {
-          material.emissiveIntensity = 1;
-        }
-      }
 
       if (healthRef.current <= 0) {
         if (backgroundMusicRef.current?.isPlaying) backgroundMusicRef.current.stop();
