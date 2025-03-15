@@ -49,8 +49,8 @@ const ThreeScene: React.FC<ThreeSceneProps> = ({
   const starsRef = useRef<THREE.Points | null>(null);
   const backgroundMusicRef = useRef<THREE.Audio | null>(null);
   const hitSoundRef = useRef<THREE.Audio | null>(null);
-  const explosionSoundRef = useRef<THREE.Audio | null>(null); // New explosion sound
-  const bulletSoundRef = useRef<THREE.Audio | null>(null);   // New bullet sound
+  const explosionSoundRef = useRef<THREE.Audio | null>(null);
+  const bulletSoundRef = useRef<THREE.Audio | null>(null);
   const animationFrameIdRef = useRef<number>(0);
   const healthBarRef = useRef<THREE.Mesh | null>(null);
   const flashPlaneRef = useRef<THREE.Mesh | null>(null);
@@ -60,6 +60,8 @@ const ThreeScene: React.FC<ThreeSceneProps> = ({
   const particlesRef = useRef<ParticleExplosion[]>([]);
   const fragmentsRef = useRef<TextFragment[]>([]);
   const fontLoadedRef = useRef<any>(null);
+  const wordQueueRef = useRef<string[]>([]);
+  const charQueueRef = useRef<string[]>([]);
 
   const difficultyRef = useRef({
     fallingSpeed: 0.02,
@@ -86,6 +88,8 @@ const ThreeScene: React.FC<ThreeSceneProps> = ({
     lettersRef.current = [];
     particlesRef.current = [];
     fragmentsRef.current = [];
+    wordQueueRef.current = [];
+    charQueueRef.current = [];
     difficultyRef.current = { fallingSpeed: 0.02, spawnInterval: 3000, comboMultiplier: 1 };
     comboCountRef.current = 0;
     if (spawnTimeoutRef.current) clearTimeout(spawnTimeoutRef.current);
@@ -290,17 +294,24 @@ const ThreeScene: React.FC<ThreeSceneProps> = ({
         hitSoundRef.current = sound;
       });
       loadSound(audioLoader, listener, '/explosion.mp3', 0.4, false).then((sound) => {
-        explosionSoundRef.current = sound; // Load explosion sound
+        explosionSoundRef.current = sound;
       });
       loadSound(audioLoader, listener, '/bullet.mp3', 0.3, false).then((sound) => {
-        bulletSoundRef.current = sound; // Load bullet sound
+        bulletSoundRef.current = sound;
       });
     }
 
     const loader = new FontLoader();
 
-    const spawnLetter = (font: any) => {
-      const { letter, mesh } = generateLetterMesh(font, 5);
+    const spawnLetter = (letter: string, font: any) => {
+      const mesh = new THREE.Mesh(
+        new TextGeometry(letter, {
+          font,
+          size: 1,
+          height: 0.2,
+        }),
+        new THREE.MeshPhongMaterial()
+      );
       mesh.position.x = (Math.random() - 0.5) * 20;
       mesh.position.y = (Math.random() - 0.5) * 20;
       mesh.position.z = -50;
@@ -327,19 +338,51 @@ const ThreeScene: React.FC<ThreeSceneProps> = ({
       scene.add(mesh);
     };
 
-    const spawnNextLetter = () => {
-      if (fontLoadedRef.current) {
-        spawnLetter(fontLoadedRef.current);
-      } else {
-        loader.load('/font.json', (font: any) => {
-          fontLoadedRef.current = font;
-          spawnLetter(font);
-        });
+    const fetchQuote = async () => {
+      try {
+        const response = await fetch('https://api.quotable.io/random?maxLength=50');
+        const data = await response.json();
+        const words: string[] = data.content.split(/\s+/).filter((word: string) => word.length > 0);
+        wordQueueRef.current = words;
+        if (charQueueRef.current.length === 0 && words.length > 0) {
+          charQueueRef.current = words[0].split('');
+          wordQueueRef.current.shift();
+        }
+      } catch (error) {
+        console.error('Error fetching quote:', error);
+        // Fallback words if API fails
+        wordQueueRef.current = ['BOOK', 'READ', 'CODE'];
+        charQueueRef.current = 'BOOK'.split('');
       }
-      spawnTimeoutRef.current = setTimeout(spawnNextLetter, difficultyRef.current.spawnInterval);
     };
 
-    spawnNextLetter();
+    const spawnNextLetter = () => {
+      if (!fontLoadedRef.current) return;
+
+      if (charQueueRef.current.length === 0 && wordQueueRef.current.length === 0) {
+        fetchQuote().then(() => {
+          if (charQueueRef.current.length > 0) {
+            const letter = charQueueRef.current.shift()!;
+            spawnLetter(letter, fontLoadedRef.current);
+          }
+        });
+      } else if (charQueueRef.current.length > 0) {
+        const letter = charQueueRef.current.shift()!;
+        spawnLetter(letter, fontLoadedRef.current);
+      } else if (wordQueueRef.current.length > 0) {
+        charQueueRef.current = wordQueueRef.current[0].split('');
+        wordQueueRef.current.shift();
+        const letter = charQueueRef.current.shift()!;
+        spawnLetter(letter, fontLoadedRef.current);
+      }
+
+      spawnTimeoutRef.current = setTimeout(spawnNextLetter, 1000); // 1 second between characters
+    };
+
+    loader.load('/font.json', (font: any) => {
+      fontLoadedRef.current = font;
+      fetchQuote().then(() => spawnNextLetter());
+    });
 
     const isMobile = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
 
@@ -392,7 +435,6 @@ const ThreeScene: React.FC<ThreeSceneProps> = ({
           scene.remove(matchedLetter.mesh);
           lettersRef.current.splice(matchingIndex, 1);
 
-          // Play bullet sound when hitting a letter
           if (bulletSoundRef.current) bulletSoundRef.current.play();
 
           setTimeout(() => {
@@ -468,7 +510,6 @@ const ThreeScene: React.FC<ThreeSceneProps> = ({
         shakeTimeRef.current = 0.5;
         shakeAmplitudeRef.current = 0.5;
         flashTimeRef.current = 0.1;
-        // Play explosion sound when a letter is missed
         if (explosionSoundRef.current) explosionSoundRef.current.play();
       });
 
