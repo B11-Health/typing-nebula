@@ -168,11 +168,19 @@ const ThreeScene: React.FC<ThreeSceneProps> = ({
 
     const textureLoader = new THREE.TextureLoader();
     textureLoader.load('/nebula.jpg', (texture) => {
-      const geometry = new THREE.PlaneGeometry(200, 200);
-      const material = new THREE.MeshBasicMaterial({ map: texture, transparent: true });
-      const nebula = new THREE.Mesh(geometry, material);
-      nebula.position.z = -100;
-      scene.add(nebula);
+      // Calculate dimensions based on camera aspect ratio and 120% scale
+      const aspect = window.innerWidth / window.innerHeight;
+      const camera = cameraRef.current;
+      if (camera) {
+        const height = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * Math.abs(camera.position.z - -100) * 2;
+        const width = height * aspect;
+        const scaleFactor = 1.2; // 120% of screen size
+        const geometry = new THREE.PlaneGeometry(width * scaleFactor, height * scaleFactor);
+        const material = new THREE.MeshBasicMaterial({ map: texture, transparent: true });
+        const nebula = new THREE.Mesh(geometry, material);
+        nebula.position.z = -100;
+        scene.add(nebula);
+      }
     });
 
     const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
