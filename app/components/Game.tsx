@@ -8,9 +8,7 @@ interface OverlayProps {
 }
 
 const Overlay: React.FC<OverlayProps> = ({ children, style }) => (
-  <div style={{ ...overlayStyles, ...style }}>
-    {children}
-  </div>
+  <div style={{ ...overlayStyles, ...style }}>{children}</div>
 );
 
 interface StartScreenProps {
@@ -19,10 +17,13 @@ interface StartScreenProps {
 const StartScreen: React.FC<StartScreenProps> = ({ onStart }) => (
   <Overlay>
     <h2 style={titleStyles}>Typing Nebula</h2>
-    <button style={buttonStyles} onClick={() => {
-      new Audio('/start.wav').play().catch(() => {}); // Add start sound
-      onStart();
-    }}>
+    <button
+      style={buttonStyles}
+      onClick={() => {
+        // new Audio('/start.wav').play().catch(() => {});
+        onStart();
+      }}
+    >
       Launch Mission
     </button>
   </Overlay>
@@ -47,10 +48,13 @@ const GameOverScreen: React.FC<GameOverScreenProps> = ({ score, onRestart }) => 
   <Overlay style={gameOverOverlayStyles}>
     <h2 style={titleStyles}>Mission Failed</h2>
     <p style={scoreTextStyles}>Final Score: {score}</p>
-    <button style={buttonStyles} onClick={() => {
-      new Audio('/restart.wav').play().catch(() => {}); // Add restart sound
-      onRestart();
-    }}>
+    <button
+      style={buttonStyles}
+      onClick={() => {
+        //new Audio('/restart.wav').play().catch(() => {});
+        onRestart();
+      }}
+    >
       Retry Mission
     </button>
   </Overlay>
@@ -62,6 +66,7 @@ const Game: React.FC = () => {
   const [score, setScore] = useState(0);
   const [health, setHealth] = useState(100);
   const [combo, setCombo] = useState(1);
+  const [resetSignal, setResetSignal] = useState(0);
 
   const startGame = () => {
     setScore(0);
@@ -69,10 +74,13 @@ const Game: React.FC = () => {
     setCombo(1);
     setGameOver(false);
     setGameStarted(true);
+    setResetSignal((prev) => prev + 1);
   };
 
   const restartGame = () => {
     setGameStarted(false);
+    setGameOver(false);
+    setResetSignal((prev) => prev + 1);
     setTimeout(() => startGame(), 100);
   };
 
@@ -80,7 +88,6 @@ const Game: React.FC = () => {
     setGameOver(true);
   }, []);
 
-  // Simulate combo updates for demo purposes
   useEffect(() => {
     if (gameStarted && !gameOver) {
       const interval = setInterval(() => {
@@ -98,6 +105,7 @@ const Game: React.FC = () => {
         onHealthChange={setHealth}
         health={health}
         onGameOver={onGameOver}
+        resetSignal={resetSignal}
       />
       {!gameStarted && !gameOver && <StartScreen onStart={startGame} />}
       {gameStarted && !gameOver && <ScoreBoard score={score} combo={combo} />}
@@ -110,7 +118,7 @@ const gameContainerStyles: React.CSSProperties = {
   position: 'relative',
   width: '100vw',
   height: '100vh',
-  background: '#000428', // Match ThreeScene background
+  background: '#000428',
   overflow: 'hidden',
 };
 
@@ -136,7 +144,7 @@ const gameOverOverlayStyles: React.CSSProperties = {
 
 const titleStyles: React.CSSProperties = {
   fontSize: '3rem',
-  fontFamily: "'Orbitron', sans-serif", // Use a sci-fi font
+  fontFamily: "'Orbitron', sans-serif",
   textShadow: '0 0 10px #00ffcc, 0 0 20px #00ffcc',
   marginBottom: '20px',
 };
@@ -182,7 +190,6 @@ const comboTextStyles: React.CSSProperties = {
   margin: '5px 0',
 };
 
-// Add these keyframes to your CSS or a <style> tag in your index.html
 const keyframes = `
   @keyframes fadeIn {
     from { opacity: 0; }
@@ -201,7 +208,6 @@ const keyframes = `
   }
 `;
 
-// Inject keyframes into the document
 if (typeof document !== 'undefined') {
   const styleSheet = document.createElement('style');
   styleSheet.textContent = keyframes;

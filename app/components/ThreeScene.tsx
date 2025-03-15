@@ -1,3 +1,4 @@
+// src/components/ThreeScene.tsx
 import React, { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { FontLoader, TextGeometry } from 'three-stdlib';
@@ -10,6 +11,7 @@ interface ThreeSceneProps {
   onHealthChange: React.Dispatch<React.SetStateAction<number>>;
   health: number;
   onGameOver: () => void;
+  resetSignal: number;
 }
 
 interface Letter {
@@ -37,15 +39,18 @@ const ThreeScene: React.FC<ThreeSceneProps> = ({
   onHealthChange,
   health,
   onGameOver,
+  resetSignal,
 }) => {
   const mountRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
-  const starsRef = useRef<THREE.Points | null>(null); // Reference to starfield
+  const starsRef = useRef<THREE.Points | null>(null);
   const backgroundMusicRef = useRef<THREE.Audio | null>(null);
   const hitSoundRef = useRef<THREE.Audio | null>(null);
+  const explosionSoundRef = useRef<THREE.Audio | null>(null); // New explosion sound
+  const bulletSoundRef = useRef<THREE.Audio | null>(null);   // New bullet sound
   const animationFrameIdRef = useRef<number>(0);
   const healthBarRef = useRef<THREE.Mesh | null>(null);
   const flashPlaneRef = useRef<THREE.Mesh | null>(null);
@@ -54,7 +59,6 @@ const ThreeScene: React.FC<ThreeSceneProps> = ({
   const lettersRef = useRef<Letter[]>([]);
   const particlesRef = useRef<ParticleExplosion[]>([]);
   const fragmentsRef = useRef<TextFragment[]>([]);
-
   const fontLoadedRef = useRef<any>(null);
 
   const difficultyRef = useRef({
@@ -67,18 +71,32 @@ const ThreeScene: React.FC<ThreeSceneProps> = ({
   const spawnTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const shakeTimeRef = useRef(0);
   const shakeAmplitudeRef = useRef(0);
-
   const healthRef = useRef(health);
+
   useEffect(() => {
     healthRef.current = health;
   }, [health]);
+
+  const resetScene = () => {
+    if (sceneRef.current) {
+      lettersRef.current.forEach((item) => sceneRef.current?.remove(item.mesh));
+      particlesRef.current.forEach((explosion) => sceneRef.current?.remove(explosion.points));
+      fragmentsRef.current.forEach((fragment) => sceneRef.current?.remove(fragment.mesh));
+    }
+    lettersRef.current = [];
+    particlesRef.current = [];
+    fragmentsRef.current = [];
+    difficultyRef.current = { fallingSpeed: 0.02, spawnInterval: 3000, comboMultiplier: 1 };
+    comboCountRef.current = 0;
+    if (spawnTimeoutRef.current) clearTimeout(spawnTimeoutRef.current);
+    if (backgroundMusicRef.current?.isPlaying) backgroundMusicRef.current.stop();
+  };
 
   /** Scene Setup */
   useEffect(() => {
     const scene = new THREE.Scene();
     sceneRef.current = scene;
 
-    // Background gradient with stars
     const canvas = document.createElement('canvas');
     canvas.width = 512;
     canvas.height = 512;
@@ -97,32 +115,30 @@ const ThreeScene: React.FC<ThreeSceneProps> = ({
     }
     scene.background = new THREE.CanvasTexture(canvas);
 
-    // Enhanced Starfield
     const starGeometry = new THREE.BufferGeometry();
-    const starCount = 5000; // Increased for denser field
+    const starCount = 5000;
     const starPositions = new Float32Array(starCount * 3);
     const starSizes = new Float32Array(starCount);
     for (let i = 0; i < starCount; i++) {
       starPositions[i * 3] = (Math.random() - 0.5) * 150;
       starPositions[i * 3 + 1] = (Math.random() - 0.5) * 150;
       starPositions[i * 3 + 2] = -Math.random() * 100;
-      starSizes[i] = Math.random() * 0.2 + 0.05; // Smaller sizes
+      starSizes[i] = Math.random() * 0.2 + 0.05;
     }
     starGeometry.setAttribute('position', new THREE.BufferAttribute(starPositions, 3));
     starGeometry.setAttribute('size', new THREE.BufferAttribute(starSizes, 1));
     const starMaterial = new THREE.PointsMaterial({
       color: 0xffffff,
-      size: 0.1, // Base size reduced
+      size: 0.1,
       sizeAttenuation: true,
       transparent: true,
     });
     const stars = new THREE.Points(starGeometry, starMaterial);
     scene.add(stars);
-    starsRef.current = stars; // Store reference for animation
+    starsRef.current = stars;
 
-    // Optional Nebula Background (requires texture)
     const textureLoader = new THREE.TextureLoader();
-    textureLoader.load('/nebula.png', (texture) => {
+    textureLoader.load('/nebula.jpg', (texture) => {
       const geometry = new THREE.PlaneGeometry(200, 200);
       const material = new THREE.MeshBasicMaterial({ map: texture, transparent: true });
       const nebula = new THREE.Mesh(geometry, material);
@@ -130,12 +146,10 @@ const ThreeScene: React.FC<ThreeSceneProps> = ({
       scene.add(nebula);
     });
 
-    // Camera
     const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
     camera.position.z = 10;
     cameraRef.current = camera;
 
-    // Renderer
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     renderer.setPixelRatio(window.devicePixelRatio);
     renderer.setSize(window.innerWidth, window.innerHeight);
@@ -146,7 +160,6 @@ const ThreeScene: React.FC<ThreeSceneProps> = ({
       mountRef.current.appendChild(renderer.domElement);
     }
 
-    // Lighting
     const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
     scene.add(ambientLight);
     const pointLight1 = new THREE.PointLight(0xff6666, 1, 50);
@@ -156,7 +169,6 @@ const ThreeScene: React.FC<ThreeSceneProps> = ({
     pointLight2.position.set(-5, 5, 5);
     scene.add(pointLight2);
 
-    // Health Bar
     const healthBarGeometry = new THREE.PlaneGeometry(8, 0.5);
     const healthBarMaterial = new THREE.MeshPhongMaterial({
       color: 0x00ff00,
@@ -168,7 +180,6 @@ const ThreeScene: React.FC<ThreeSceneProps> = ({
     healthBarRef.current = healthBar;
     scene.add(healthBar);
 
-    // Flash Plane for Danger Warning
     const flashGeometry = new THREE.PlaneGeometry(20, 20);
     const flashMaterial = new THREE.MeshBasicMaterial({
       color: 0xff0000,
@@ -180,11 +191,9 @@ const ThreeScene: React.FC<ThreeSceneProps> = ({
     scene.add(flashPlane);
     flashPlaneRef.current = flashPlane;
 
-    // Audio Listener
     const listener = new THREE.AudioListener();
     camera.add(listener);
 
-    // Resize Handler
     const handleResize = () => {
       if (cameraRef.current && rendererRef.current) {
         cameraRef.current.aspect = window.innerWidth / window.innerHeight;
@@ -194,7 +203,6 @@ const ThreeScene: React.FC<ThreeSceneProps> = ({
     };
     window.addEventListener('resize', handleResize);
 
-    // Cleanup
     return () => {
       window.removeEventListener('resize', handleResize);
       if (animationFrameIdRef.current) cancelAnimationFrame(animationFrameIdRef.current);
@@ -203,7 +211,6 @@ const ThreeScene: React.FC<ThreeSceneProps> = ({
     };
   }, []);
 
-  /** Particle Explosion */
   const createParticleExplosion = (position: THREE.Vector3, baseColor: THREE.Color) => {
     const particleCount = 200;
     const geometry = new THREE.BufferGeometry();
@@ -233,7 +240,6 @@ const ThreeScene: React.FC<ThreeSceneProps> = ({
     particlesRef.current.push({ points, velocities, lifetime: 1.5, color: baseColor });
   };
 
-  /** Text Fragment Explosion */
   const createTextExplosion = (position: THREE.Vector3, letter: string, font: any) => {
     const fragmentCount = 6;
     for (let i = 0; i < fragmentCount; i++) {
@@ -261,13 +267,16 @@ const ThreeScene: React.FC<ThreeSceneProps> = ({
 
   /** Game Logic */
   useEffect(() => {
-    if (!gameStarted) return;
+    if (!gameStarted || resetSignal) {
+      resetScene();
+      if (!gameStarted) return;
+    }
+
     const scene = sceneRef.current;
     const camera = cameraRef.current;
     const renderer = rendererRef.current;
     if (!scene || !camera || !renderer) return;
 
-    // Audio Setup
     if (!backgroundMusicRef.current) {
       const audioLoader = new THREE.AudioLoader();
       const listener = camera.children.find(
@@ -280,11 +289,16 @@ const ThreeScene: React.FC<ThreeSceneProps> = ({
       loadSound(audioLoader, listener, '/miss.mp3', 0.3, false).then((sound) => {
         hitSoundRef.current = sound;
       });
+      loadSound(audioLoader, listener, '/explosion.mp3', 0.4, false).then((sound) => {
+        explosionSoundRef.current = sound; // Load explosion sound
+      });
+      loadSound(audioLoader, listener, '/bullet.mp3', 0.3, false).then((sound) => {
+        bulletSoundRef.current = sound; // Load bullet sound
+      });
     }
 
     const loader = new FontLoader();
 
-    // Spawn Letter
     const spawnLetter = (font: any) => {
       const { letter, mesh } = generateLetterMesh(font, 5);
       mesh.position.x = (Math.random() - 0.5) * 20;
@@ -313,7 +327,6 @@ const ThreeScene: React.FC<ThreeSceneProps> = ({
       scene.add(mesh);
     };
 
-    // Spawn Next Letter
     const spawnNextLetter = () => {
       if (fontLoadedRef.current) {
         spawnLetter(fontLoadedRef.current);
@@ -328,7 +341,6 @@ const ThreeScene: React.FC<ThreeSceneProps> = ({
 
     spawnNextLetter();
 
-    // Input Handlers
     const isMobile = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
 
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -336,10 +348,11 @@ const ThreeScene: React.FC<ThreeSceneProps> = ({
       processKey(pressedKey);
     };
 
-    const handleInput = () => {
-      const char = inputRef.current?.value.toUpperCase() || '';
+    const handleInput = (e: Event) => {
+      const input = e.target as HTMLInputElement;
+      const char = input.value.toUpperCase();
       processKey(char);
-      if (inputRef.current) inputRef.current.value = '';
+      input.value = '';
     };
 
     const processKey = (key: string) => {
@@ -379,6 +392,9 @@ const ThreeScene: React.FC<ThreeSceneProps> = ({
           scene.remove(matchedLetter.mesh);
           lettersRef.current.splice(matchingIndex, 1);
 
+          // Play bullet sound when hitting a letter
+          if (bulletSoundRef.current) bulletSoundRef.current.play();
+
           setTimeout(() => {
             scene.remove(laser);
             createParticleExplosion(letterPos, baseColor);
@@ -408,29 +424,29 @@ const ThreeScene: React.FC<ThreeSceneProps> = ({
     if (isMobile && inputRef.current) {
       inputRef.current.focus();
       inputRef.current.addEventListener('input', handleInput);
+      inputRef.current.addEventListener('touchstart', () => {
+        inputRef.current?.focus();
+      });
     } else {
       window.addEventListener('keydown', handleKeyDown);
     }
 
-    // Animation Loop
     const animate = (time: number) => {
       animationFrameIdRef.current = requestAnimationFrame(animate);
 
-      // Update Starfield
       if (starsRef.current) {
         const starPositions = starsRef.current.geometry.attributes.position.array;
         for (let i = 2; i < starPositions.length; i += 3) {
-          starPositions[i] += 0.1; // Move stars toward camera
+          starPositions[i] += 0.1;
           if (starPositions[i] > 10) {
-            starPositions[i] = -100; // Reset to far plane
-            starPositions[i - 2] = (Math.random() - 0.5) * 150; // New x
-            starPositions[i - 1] = (Math.random() - 0.5) * 150; // New y
+            starPositions[i] = -100;
+            starPositions[i - 2] = (Math.random() - 0.5) * 150;
+            starPositions[i - 1] = (Math.random() - 0.5) * 150;
           }
         }
         starsRef.current.geometry.attributes.position.needsUpdate = true;
       }
 
-      // Update Letters
       const toRemove: number[] = [];
       lettersRef.current.forEach((item, index) => {
         if (item.mesh.position.z > 10) {
@@ -452,9 +468,10 @@ const ThreeScene: React.FC<ThreeSceneProps> = ({
         shakeTimeRef.current = 0.5;
         shakeAmplitudeRef.current = 0.5;
         flashTimeRef.current = 0.1;
+        // Play explosion sound when a letter is missed
+        if (explosionSoundRef.current) explosionSoundRef.current.play();
       });
 
-      // Update Health Bar
       if (healthBarRef.current) {
         const healthScale = healthRef.current / 100;
         healthBarRef.current.scale.x = healthScale;
@@ -469,14 +486,13 @@ const ThreeScene: React.FC<ThreeSceneProps> = ({
         }
       }
 
-      // Check Game Over
       if (healthRef.current <= 0) {
         if (backgroundMusicRef.current?.isPlaying) backgroundMusicRef.current.stop();
         onGameOver();
         cancelAnimationFrame(animationFrameIdRef.current);
+        return;
       }
 
-      // Update Particles
       particlesRef.current.forEach((explosion, index) => {
         explosion.lifetime -= 0.016;
         const positions = (explosion.points.geometry.getAttribute('position') as THREE.BufferAttribute).array as Float32Array;
@@ -496,7 +512,6 @@ const ThreeScene: React.FC<ThreeSceneProps> = ({
         }
       });
 
-      // Update Fragments
       fragmentsRef.current.forEach((fragment, index) => {
         fragment.lifetime -= 0.016;
         fragment.mesh.position.add(fragment.velocity);
@@ -509,7 +524,6 @@ const ThreeScene: React.FC<ThreeSceneProps> = ({
         }
       });
 
-      // Camera Shake
       if (shakeTimeRef.current > 0) {
         camera.position.x = Math.sin(time * 0.05) * shakeAmplitudeRef.current;
         camera.position.y = Math.cos(time * 0.05) * shakeAmplitudeRef.current;
@@ -520,7 +534,6 @@ const ThreeScene: React.FC<ThreeSceneProps> = ({
         }
       }
 
-      // Flash Effect
       if (flashTimeRef.current > 0 && flashPlaneRef.current) {
         const flashMaterial = flashPlaneRef.current.material as THREE.MeshBasicMaterial;
         flashMaterial.opacity = 0.5 * (flashTimeRef.current / 0.1);
@@ -535,32 +548,25 @@ const ThreeScene: React.FC<ThreeSceneProps> = ({
 
     animationFrameIdRef.current = requestAnimationFrame(animate);
 
-    // Cleanup
     return () => {
       if (isMobile && inputRef.current) {
         inputRef.current.removeEventListener('input', handleInput);
+        inputRef.current.removeEventListener('touchstart', () => {});
       } else {
         window.removeEventListener('keydown', handleKeyDown);
       }
       if (animationFrameIdRef.current) cancelAnimationFrame(animationFrameIdRef.current);
-      if (spawnTimeoutRef.current) clearTimeout(spawnTimeoutRef.current);
-      lettersRef.current.forEach((item) => scene.remove(item.mesh));
-      lettersRef.current = [];
-      particlesRef.current.forEach((explosion) => scene.remove(explosion.points));
-      particlesRef.current = [];
-      fragmentsRef.current.forEach((fragment) => scene.remove(fragment.mesh));
-      fragmentsRef.current = [];
+      resetScene();
     };
-  }, [gameStarted, onScoreChange, onHealthChange, onGameOver]);
+  }, [gameStarted, onScoreChange, onHealthChange, onGameOver, resetSignal]);
 
-  // Detect mobile device
   const isMobile = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
 
   return (
     <div
       ref={mountRef}
       style={{
-        position: 'fixed', // Prevent resizing issues on mobile
+        position: 'fixed',
         top: 0,
         left: 0,
         width: '100vw',
@@ -571,10 +577,21 @@ const ThreeScene: React.FC<ThreeSceneProps> = ({
       {isMobile && (
         <input
           ref={inputRef}
-          style={{ position: 'absolute', bottom: 0, width: '100%', opacity: 0 }}
+          type="text"
+          style={{
+            position: 'absolute',
+            bottom: '10px',
+            width: '100%',
+            opacity: 0,
+            zIndex: 1000,
+            border: 'none',
+            background: 'transparent',
+            outline: 'none',
+          }}
           autoCapitalize="none"
           autoCorrect="off"
           spellCheck="false"
+          autoFocus={true}
         />
       )}
     </div>
