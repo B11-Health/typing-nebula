@@ -80,11 +80,20 @@ const ThreeScene: React.FC<ThreeSceneProps> = ({
   }, [health]);
 
   const resetScene = () => {
+    // Stop and clear existing audio
+    if (backgroundMusicRef.current?.isPlaying) {
+      backgroundMusicRef.current.stop();
+    }
+    backgroundMusicRef.current = null;
+
+    // Clear scene objects
     if (sceneRef.current) {
       lettersRef.current.forEach((item) => sceneRef.current?.remove(item.mesh));
       particlesRef.current.forEach((explosion) => sceneRef.current?.remove(explosion.points));
       fragmentsRef.current.forEach((fragment) => sceneRef.current?.remove(fragment.mesh));
     }
+
+    // Reset all refs to initial state
     lettersRef.current = [];
     particlesRef.current = [];
     fragmentsRef.current = [];
@@ -92,8 +101,19 @@ const ThreeScene: React.FC<ThreeSceneProps> = ({
     charQueueRef.current = [];
     difficultyRef.current = { fallingSpeed: 0.02, spawnInterval: 3000, comboMultiplier: 1 };
     comboCountRef.current = 0;
-    if (spawnTimeoutRef.current) clearTimeout(spawnTimeoutRef.current);
-    if (backgroundMusicRef.current?.isPlaying) backgroundMusicRef.current.stop();
+    healthRef.current = 100; // Reset health to full
+    if (spawnTimeoutRef.current) {
+      clearTimeout(spawnTimeoutRef.current);
+      spawnTimeoutRef.current = null;
+    }
+    shakeTimeRef.current = 0;
+    shakeAmplitudeRef.current = 0;
+    flashTimeRef.current = 0;
+    
+    // Reset camera position if it was affected by shake
+    if (cameraRef.current) {
+      cameraRef.current.position.set(0, 0, 10);
+    }
   };
 
   /** Scene Setup */
@@ -212,6 +232,7 @@ const ThreeScene: React.FC<ThreeSceneProps> = ({
       if (animationFrameIdRef.current) cancelAnimationFrame(animationFrameIdRef.current);
       if (spawnTimeoutRef.current) clearTimeout(spawnTimeoutRef.current);
       if (mountRef.current) mountRef.current.innerHTML = '';
+      resetScene(); // Ensure cleanup on unmount
     };
   }, []);
 
@@ -271,16 +292,16 @@ const ThreeScene: React.FC<ThreeSceneProps> = ({
 
   /** Game Logic */
   useEffect(() => {
-    if (!gameStarted || resetSignal) {
-      resetScene();
-      if (!gameStarted) return;
-    }
+    resetScene(); // Always reset scene when dependencies change
+
+    if (!gameStarted) return;
 
     const scene = sceneRef.current;
     const camera = cameraRef.current;
     const renderer = rendererRef.current;
     if (!scene || !camera || !renderer) return;
 
+    // Load sounds only when game starts
     if (!backgroundMusicRef.current) {
       const audioLoader = new THREE.AudioLoader();
       const listener = camera.children.find(
@@ -288,7 +309,7 @@ const ThreeScene: React.FC<ThreeSceneProps> = ({
       ) as THREE.AudioListener;
       loadSound(audioLoader, listener, '/Focus.mp3', 0.5, true).then((sound) => {
         backgroundMusicRef.current = sound;
-        sound.play();
+        if (gameStarted) sound.play();
       });
       loadSound(audioLoader, listener, '/miss.mp3', 0.3, false).then((sound) => {
         hitSoundRef.current = sound;
@@ -338,11 +359,16 @@ const ThreeScene: React.FC<ThreeSceneProps> = ({
       scene.add(mesh);
     };
 
+    const getRandomLetter = () => {
+      const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+      return letters[Math.floor(Math.random() * letters.length)];
+    };
+
     const fetchQuote = async () => {
       try {
         const response = await fetch('https://api.quotable.io/random?maxLength=50');
         const data = await response.json();
-        const words: string[] = data.content.split(/\s+/).filter((word: string) => word.length > 0);
+        const words: string[] = data.content.toUpperCase().replace(/[^A-Z\s]/g, '').split(/\s+/).filter((word: string) => word.length > 0);
         wordQueueRef.current = words;
         if (charQueueRef.current.length === 0 && words.length > 0) {
           charQueueRef.current = words[0].split('');
@@ -350,20 +376,20 @@ const ThreeScene: React.FC<ThreeSceneProps> = ({
         }
       } catch (error) {
         console.error('Error fetching quote:', error);
-        // Fallback words if API fails
-        wordQueueRef.current = ['BOOK', 'READ', 'CODE'];
-        charQueueRef.current = 'BOOK'.split('');
+        charQueueRef.current = [getRandomLetter()];
       }
     };
 
     const spawnNextLetter = () => {
-      if (!fontLoadedRef.current) return;
+      if (!fontLoadedRef.current || !gameStarted) return;
 
       if (charQueueRef.current.length === 0 && wordQueueRef.current.length === 0) {
         fetchQuote().then(() => {
           if (charQueueRef.current.length > 0) {
             const letter = charQueueRef.current.shift()!;
             spawnLetter(letter, fontLoadedRef.current);
+          } else {
+            spawnLetter(getRandomLetter(), fontLoadedRef.current);
           }
         });
       } else if (charQueueRef.current.length > 0) {
@@ -374,9 +400,11 @@ const ThreeScene: React.FC<ThreeSceneProps> = ({
         wordQueueRef.current.shift();
         const letter = charQueueRef.current.shift()!;
         spawnLetter(letter, fontLoadedRef.current);
+      } else {
+        spawnLetter(getRandomLetter(), fontLoadedRef.current);
       }
 
-      spawnTimeoutRef.current = setTimeout(spawnNextLetter, 1000); // 1 second between characters
+      spawnTimeoutRef.current = setTimeout(spawnNextLetter, 1000);
     };
 
     loader.load('/font.json', (font: any) => {
@@ -469,12 +497,15 @@ const ThreeScene: React.FC<ThreeSceneProps> = ({
       inputRef.current.addEventListener('touchstart', () => {
         inputRef.current?.focus();
       });
+      setTimeout(() => inputRef.current?.focus(), 100);
     } else {
       window.addEventListener('keydown', handleKeyDown);
     }
 
     const animate = (time: number) => {
       animationFrameIdRef.current = requestAnimationFrame(animate);
+
+      if (!gameStarted) return;
 
       if (starsRef.current) {
         const starPositions = starsRef.current.geometry.attributes.position.array;
@@ -597,7 +628,7 @@ const ThreeScene: React.FC<ThreeSceneProps> = ({
         window.removeEventListener('keydown', handleKeyDown);
       }
       if (animationFrameIdRef.current) cancelAnimationFrame(animationFrameIdRef.current);
-      resetScene();
+      if (spawnTimeoutRef.current) clearTimeout(spawnTimeoutRef.current);
     };
   }, [gameStarted, onScoreChange, onHealthChange, onGameOver, resetSignal]);
 
@@ -623,16 +654,18 @@ const ThreeScene: React.FC<ThreeSceneProps> = ({
             position: 'absolute',
             bottom: '10px',
             width: '100%',
-            opacity: 0,
+            opacity: 0.1,
             zIndex: 1000,
             border: 'none',
             background: 'transparent',
             outline: 'none',
+            color: 'white',
           }}
-          autoCapitalize="none"
+          autoCapitalize="characters"
           autoCorrect="off"
           spellCheck="false"
           autoFocus={true}
+          inputMode="text"
         />
       )}
     </div>
