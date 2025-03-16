@@ -1,5 +1,4 @@
-// src/components/Game.tsx
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import ThreeScene from './ThreeScene';
 
 interface OverlayProps {
@@ -34,12 +33,14 @@ interface HUDProps {
   score: number;
   combo: number;
   health: number;
+  level: number;
 }
-const HUD: React.FC<HUDProps> = ({ score, combo, health }) => (
+const HUD: React.FC<HUDProps> = ({ score, combo, health, level }) => (
   <div style={hudStyles}>
     <div style={scoreBoardStyles}>
       <p style={scoreTextStyles}>Score: {score}</p>
       <p style={comboTextStyles}>Combo: x{combo.toFixed(1)}</p>
+      <p style={levelTextStyles}>Level: {level}</p>
     </div>
     <div style={healthBarContainerStyles}>
       <div style={healthBarLabelStyles}>Shield Integrity</div>
@@ -87,11 +88,21 @@ const Game: React.FC = () => {
   const [health, setHealth] = useState(100);
   const [combo, setCombo] = useState(1);
   const [resetSignal, setResetSignal] = useState(0);
+  const [shakeHud, setShakeHud] = useState(false);
+  const [lightspeed, setLightspeed] = useState(false);
+  const [level, setLevel] = useState(1);
+  const lightspeedAudioRef = useRef<HTMLAudioElement | null>(null);
+
+  useEffect(() => {
+    lightspeedAudioRef.current = new Audio('/spaceship_jet.mp3');
+    lightspeedAudioRef.current.volume = 0.5; // Adjust volume as needed
+  }, []);
 
   const startGame = () => {
     setScore(0);
     setHealth(100);
     setCombo(1);
+    setLevel(1);
     setGameOver(false);
     setGameStarted(true);
     setResetSignal((prev) => prev + 1);
@@ -108,34 +119,66 @@ const Game: React.FC = () => {
     setGameOver(true);
   }, []);
 
-  useEffect(() => {
-    if (gameStarted && !gameOver) {
-      const interval = setInterval(() => {
-        setCombo((prev) => Math.min(3, prev + 0.1));
-      }, 5000);
-      return () => clearInterval(interval);
-    }
-  }, [gameStarted, gameOver]);
+  const onDamage = useCallback(() => {
+    setShakeHud(true);
+    setTimeout(() => setShakeHud(false), 300);
+  }, []);
+
+  const handleScoreChange = useCallback((newScore: number | ((prev: number) => number)) => {
+    setScore((prev) => {
+      const updatedScore = typeof newScore === 'function' ? newScore(prev) : newScore;
+      const newLevel = updatedScore >= 3000 ? 3 : updatedScore >= 2000 ? 2 : 1; // 100, 200, 300 hits
+      if (newLevel > level && !lightspeed) {
+        setLightspeed(true);
+        if (lightspeedAudioRef.current) {
+          lightspeedAudioRef.current.currentTime = 0; // Reset to start
+          lightspeedAudioRef.current.play();
+        }
+        setTimeout(() => {
+          setLevel(newLevel); // Update level after lightspeed
+          setLightspeed(false);
+        }, 10000); // 10 seconds
+      }
+      return updatedScore;
+    });
+  }, [level, lightspeed]);
 
   return (
     <div style={gameContainerStyles}>
       <ThreeScene
         gameStarted={gameStarted}
-        onScoreChange={setScore}
+        onScoreChange={handleScoreChange}
         onHealthChange={setHealth}
         health={health}
         onGameOver={onGameOver}
         resetSignal={resetSignal}
+        onComboChange={setCombo}
+        onDamage={onDamage}
+        level={level}
       />
+      <img
+        src="/spaceshiphud.png"
+        alt="Spaceship HUD"
+        style={{
+          ...spaceshipHudStyles,
+          animation: shakeHud
+            ? 'shakeHud 0.3s ease-in-out'
+            : lightspeed
+            ? 'lightspeed 10s ease-in-out'
+            : 'none',
+        }}
+      />
+      {lightspeed && <div style={warpOverlayStyles} className="warp-tunnel" />}
       {!gameStarted && !gameOver && <StartScreen onStart={startGame} />}
       {gameStarted && !gameOver && (
-        <HUD score={score} combo={combo} health={health} />
+        <HUD score={score} combo={combo} health={health} level={level} />
       )}
       {gameOver && <GameOverScreen score={score} onRestart={restartGame} />}
     </div>
   );
 };
 
+// Styles
 const gameContainerStyles: React.CSSProperties = {
   position: 'relative',
   width: '100vw',
@@ -143,6 +186,31 @@ const gameContainerStyles: React.CSSProperties = {
   background: '#000428',
   overflow: 'hidden',
   fontFamily: "'Orbitron', sans-serif",
+};
+
+const spaceshipHudStyles: React.CSSProperties = {
+  position: 'absolute',
+  top: 200,
+  left: 0,
+  width: '100%',
+  height: '100%',
+  scale: 2,
+  objectFit: 'cover',
+  zIndex: 5,
+  pointerEvents: 'none',
+  opacity: 0.9,
+};
+
+const warpOverlayStyles: React.CSSProperties = {
+  position: 'absolute',
+  top: 0,
+  left: 0,
+  width: '100%',
+  height: '100%',
+  background: 'radial-gradient(circle at center, rgba(0,0,0,1) 0%, rgba(0,0,0,0) 70%)',
+  animation: 'warpTunnel 10s ease-in-out',
+  zIndex: 4,
+  pointerEvents: 'none',
 };
 
 const overlayStyles: React.CSSProperties = {
@@ -221,6 +289,13 @@ const comboTextStyles: React.CSSProperties = {
   margin: '5px 0',
 };
 
+const levelTextStyles: React.CSSProperties = {
+  fontSize: '1.4rem',
+  color: '#00ccff',
+  textShadow: '0 0 8px #00ccff',
+  margin: '5px 0',
+};
+
 const healthBarContainerStyles: React.CSSProperties = {
   background: 'rgba(0, 0, 0, 0.8)',
   padding: '15px',
@@ -278,10 +353,67 @@ const keyframes = `
     75% { transform: translate(-50%, -50%) translateX(-5px); }
     100% { transform: translate(-50%, -50%) translateX(0); }
   }
-  @keyframes pulse {
-    0% { transform: scale(1); }
-    50% { transform: scale(1.02); }
-    100% { transform: scale(1); }
+  @keyframes shakeHud {
+    0% { transform: translateX(0) rotate(0); }
+    20% { transform: translateX(-25px) rotate(-3deg); }
+    40% { transform: translateX(20px) rotate(2deg); }
+    60% { transform: translateX(-15px) rotate(-2deg); }
+    80% { transform: translateX(10px) rotate(1deg); }
+    100% { transform: translateX(0) rotate(0); }
+  }
+  @keyframes lightspeed {
+    0% { transform: perspective(1000px) scale(1); filter: blur(0px); opacity: 0.9; }
+    20% { transform: perspective(1000px) scale(1.1) translateZ(-300px); filter: blur(3px); opacity: 1; }
+    80% { transform: perspective(1000px) scale(1.1) translateZ(-500px); filter: blur(5px); opacity: 0.7; }
+    100% { transform: perspective(1000px) scale(1); filter: blur(0px); opacity: 0.9; }
+  }
+  @keyframes warpTunnel {
+    0% {
+      background: radial-gradient(circle at center, rgba(0,0,0,1) 0%, rgba(0,0,0,0) 70%);
+      opacity: 0;
+    }
+    10% {
+      background: radial-gradient(circle at center, rgba(0,0,0,1) 0%, rgba(0,0,0,0) 70%);
+      opacity: 1;
+    }
+    90% {
+      background: radial-gradient(circle at center, rgba(0,0,0,1) 0%, rgba(0,0,0,0) 70%);
+      opacity: 1;
+    }
+    100% {
+      background: radial-gradient(circle at center, rgba(0,0,0,1) 0%, rgba(0,0,0,0) 70%);
+      opacity: 0;
+    }
+  }
+  .warp-tunnel::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg, rgba(255,255,255,0) 0%, rgba(255,255,255,0.5) 50%, rgba(255,255,255,0) 100%);
+    background-size: 300% 2px;
+    animation: streak1 10s linear infinite;
+  }
+  .warp-tunnel::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg, rgba(0,255,255,0) 0%, rgba(0,255,255,0.4) 40%, rgba(0,255,255,0) 100%);
+    background-size: 400% 1px;
+    animation: streak2 10s linear infinite reverse;
+  }
+  @keyframes streak1 {
+    0% { background-position: 0% 50%; }
+    100% { background-position: 300% 50%; }
+  }
+  @keyframes streak2 {
+    0% { background-position: 0% 50%; }
+    100% { background-position: 400% 50%; }
   }
 `;
 
