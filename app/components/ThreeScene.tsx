@@ -60,15 +60,17 @@ const ThreeScene: React.FC<ThreeSceneProps> = ({
   const shakeAmplitudeRef = useRef(0);
   const flashTimeRef = useRef(0);
   const healthRef = useRef(health);
+  const transitionRef = useRef<{ active: boolean; time: number }>({ active: false, time: 0 });
+  const prevLevelRef = useRef(level);
 
   useEffect(() => {
     healthRef.current = health;
   }, [health]);
 
   const resetScene = () => {
-    if (resetSignal > 0 && backgroundMusicRef.current?.isPlaying) {
-      backgroundMusicRef.current.stop();
-      backgroundMusicRef.current = null;
+    if (backgroundMusicRef.current) {
+      if (backgroundMusicRef.current.isPlaying) backgroundMusicRef.current.stop();
+      backgroundMusicRef.current = null; // Ensure music is cleared for reload
     }
 
     if (sceneRef.current) {
@@ -99,6 +101,7 @@ const ThreeScene: React.FC<ThreeSceneProps> = ({
     if (cameraRef.current) {
       cameraRef.current.position.set(0, 0, 8);
     }
+    transitionRef.current = { active: false, time: 0 };
   };
 
   useEffect(() => {
@@ -134,24 +137,43 @@ const ThreeScene: React.FC<ThreeSceneProps> = ({
     const renderer = rendererRef.current;
     if (!scene || !camera || !renderer) return;
 
-    if (!gameStarted) {
-      renderer.render(scene, camera);
-      return;
-    }
+    renderer.render(scene, camera);
 
-    if (!backgroundMusicRef.current) {
-      loadGameSounds(listenerRef.current!).then((sounds) => {
-        backgroundMusicRef.current = sounds.backgroundMusic;
-        hitSoundRef.current = sounds.hitSound;
-        explosionSoundRef.current = sounds.explosionSound;
-        bulletSoundRef.current = sounds.bulletSound;
-        if (gameStarted) sounds.backgroundMusic.play();
-      });
-    }
+    const loadAndPlayMusic = () => {
+      if (!gameStarted) {
+        if (backgroundMusicRef.current?.isPlaying) backgroundMusicRef.current.stop();
+        return;
+      }
 
-    if (resetSignal > 0 || level === 1) {
+      if (!backgroundMusicRef.current) {
+        loadGameSounds(listenerRef.current!).then((sounds) => {
+          backgroundMusicRef.current = sounds.backgroundMusic;
+          hitSoundRef.current = sounds.hitSound;
+          explosionSoundRef.current = sounds.explosionSound;
+          bulletSoundRef.current = sounds.bulletSound;
+          if (gameStarted && healthRef.current > 0) {
+            backgroundMusicRef.current.play();
+          }
+        }).catch((error: unknown) => {
+          console.error('Error loading game sounds:', error);
+        });
+      } else if (gameStarted && !backgroundMusicRef.current.isPlaying && healthRef.current > 0) {
+        backgroundMusicRef.current.play();
+      }
+    };
+
+    // Handle music based on game state
+    if (resetSignal > 0) {
       resetScene();
     }
+    loadAndPlayMusic();
+
+    // Handle level transition
+    if (level > prevLevelRef.current && gameStarted) {
+      transitionRef.current = { active: true, time: 1.5 };
+      if (backgroundMusicRef.current?.isPlaying) backgroundMusicRef.current.stop();
+    }
+    prevLevelRef.current = level;
 
     const getRandomLetter = () => {
       const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
@@ -159,29 +181,11 @@ const ThreeScene: React.FC<ThreeSceneProps> = ({
     };
 
     const fetchQuote = async () => {
-      try {
-        const response = await fetch('https://api.spaceflightnewsapi.net/v4/articles/?limit=10');
-        const data = await response.json();
-        const text = data.results
-          .map((article: any) => `${article.title} ${article.summary}`)
-          .join(' ')
-          .toUpperCase()
-          .replace(/[^A-Z\s]/g, '')
-          .split(/\s+/)
-          .filter((word: string) => word.length > 0);
-        wordQueueRef.current = text;
-        if (charQueueRef.current.length === 0 && text.length > 0) {
-          charQueueRef.current = text[0].split('');
-          wordQueueRef.current.shift();
-        }
-      } catch (error) {
-        console.error('Error fetching quote:', error);
-        charQueueRef.current = [getRandomLetter()];
-      }
+      charQueueRef.current = [getRandomLetter()];
     };
 
     const spawnNextLetter = () => {
-      if (!fontLoadedRef.current || !gameStarted) return;
+      if (!fontLoadedRef.current || !gameStarted || transitionRef.current.active) return;
 
       const lettersToSpawn = level;
       for (let i = 0; i < lettersToSpawn; i++) {
@@ -213,13 +217,15 @@ const ThreeScene: React.FC<ThreeSceneProps> = ({
     const loader = new FontLoader();
     loader.load('/font.json', (font) => {
       fontLoadedRef.current = font;
-      fetchQuote().then(() => spawnNextLetter());
+      if (gameStarted && !transitionRef.current.active) {
+        fetchQuote().then(() => spawnNextLetter());
+      }
     });
 
     const isMobile = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
 
     const processKey = (key: string) => {
-      if (key && key.length === 1 && key >= 'A' && key <= 'Z') {
+      if (key && key.length === 1 && key >= 'A' && key <= 'Z' && !transitionRef.current.active) {
         const matchingIndex = lettersRef.current.findIndex(
           (item) => item.letter.toUpperCase() === key
         );
@@ -317,18 +323,12 @@ const ThreeScene: React.FC<ThreeSceneProps> = ({
       onDamage();
     };
 
-    const animate = (time: number) => {
-      animationFrameIdRef.current = requestAnimationFrame(animate);
-
-      if (!gameStarted) {
-        renderer.render(scene, camera);
-        return;
-      }
-
+    const updateStarfield = () => {
       if (starsRef.current) {
         const starPositions = starsRef.current.geometry.attributes.position.array;
+        const speed = transitionRef.current.active ? 5 : 0.1;
         for (let i = 2; i < starPositions.length; i += 3) {
-          starPositions[i] += 0.1;
+          starPositions[i] += speed;
           if (starPositions[i] > 10) {
             starPositions[i] = -100;
             starPositions[i - 2] = (Math.random() - 0.5) * 150;
@@ -337,34 +337,67 @@ const ThreeScene: React.FC<ThreeSceneProps> = ({
         }
         starsRef.current.geometry.attributes.position.needsUpdate = true;
       }
+    };
 
-      updateLetters(lettersRef.current, scene, camera, onHealthChange, time, handleDamageEffects);
-      updateParticles(particlesRef.current, scene, time);
-      updateFragments(fragmentsRef.current, scene);
+    const updateTransition = (delta: number) => {
+      if (transitionRef.current.active && scene) {
+        lettersRef.current.forEach((letter) => {
+          letter.mesh.position.z -= 5;
+          if (letter.mesh.position.z < -10) {
+            scene.remove(letter.mesh);
+            lettersRef.current = lettersRef.current.filter((l) => l !== letter);
+          }
+        });
 
-      if (healthRef.current <= 0) {
-        if (backgroundMusicRef.current?.isPlaying) backgroundMusicRef.current.stop();
-        onGameOver();
-        cancelAnimationFrame(animationFrameIdRef.current);
-        return;
-      }
-
-      if (shakeTimeRef.current > 0) {
-        camera.position.x = Math.sin(time * 0.05) * shakeAmplitudeRef.current;
-        camera.position.y = Math.cos(time * 0.05) * shakeAmplitudeRef.current;
-        shakeTimeRef.current -= 0.016;
-        if (shakeTimeRef.current <= 0) {
-          camera.position.x = 0;
-          camera.position.y = 0;
+        transitionRef.current.time -= delta;
+        if (transitionRef.current.time <= 0) {
+          transitionRef.current.active = false;
+          lettersRef.current = [];
+          if (sceneRef.current) {
+            lettersRef.current.forEach((item) => sceneRef.current?.remove(item.mesh));
+          }
+          fetchQuote().then(() => spawnNextLetter());
+          loadAndPlayMusic();
         }
       }
+    };
 
-      if (flashTimeRef.current > 0 && flashPlaneRef.current) {
-        const flashMaterial = flashPlaneRef.current.material as THREE.MeshBasicMaterial;
-        flashMaterial.opacity = 0.5 * (flashTimeRef.current / 0.1);
-        flashTimeRef.current -= 0.016;
-        if (flashTimeRef.current <= 0) {
-          flashMaterial.opacity = 0;
+    const animate = (time: number) => {
+      animationFrameIdRef.current = requestAnimationFrame(animate);
+
+      const delta = 0.016;
+      updateStarfield();
+      updateTransition(delta);
+
+      if (gameStarted && !transitionRef.current.active) {
+        updateLetters(lettersRef.current, scene, camera, onHealthChange, time, handleDamageEffects);
+        updateParticles(particlesRef.current, scene, time);
+        updateFragments(fragmentsRef.current, scene);
+
+        if (healthRef.current <= 0) {
+          if (backgroundMusicRef.current?.isPlaying) backgroundMusicRef.current.stop();
+          onGameOver();
+          cancelAnimationFrame(animationFrameIdRef.current);
+          return;
+        }
+
+        if (shakeTimeRef.current > 0) {
+          camera.position.x = Math.sin(time * 0.05) * shakeAmplitudeRef.current;
+          camera.position.y = Math.cos(time * 0.05) * shakeAmplitudeRef.current;
+          shakeTimeRef.current -= delta;
+          if (shakeTimeRef.current <= 0) {
+            camera.position.x = 0;
+            camera.position.y = 0;
+          }
+        }
+
+        if (flashTimeRef.current > 0 && flashPlaneRef.current) {
+          const flashMaterial = flashPlaneRef.current.material as THREE.MeshBasicMaterial;
+          flashMaterial.opacity = 0.5 * (flashTimeRef.current / 0.1);
+          flashTimeRef.current -= delta;
+          if (flashTimeRef.current <= 0) {
+            flashMaterial.opacity = 0;
+          }
         }
       }
 
@@ -382,6 +415,7 @@ const ThreeScene: React.FC<ThreeSceneProps> = ({
       }
       if (animationFrameIdRef.current) cancelAnimationFrame(animationFrameIdRef.current);
       if (spawnTimeoutRef.current) clearTimeout(spawnTimeoutRef.current);
+      if (backgroundMusicRef.current?.isPlaying) backgroundMusicRef.current.stop();
     };
   }, [gameStarted, onScoreChange, onHealthChange, onGameOver, resetSignal, onComboChange, onDamage, level]);
 

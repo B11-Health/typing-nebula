@@ -129,15 +129,15 @@ const Game: React.FC = () => {
       const updatedScore = typeof newScore === 'function' ? newScore(prev) : newScore;
       const newLevel = updatedScore >= 3000 ? 3 : updatedScore >= 2000 ? 2 : 1; // 100, 200, 300 hits
       if (newLevel > level && !lightspeed) {
-        setLightspeed(true);
+        setLevel(newLevel); // Update level immediately to trigger ThreeScene transition
+        setLightspeed(true); // Start lightspeed animation and sound
         if (lightspeedAudioRef.current) {
           lightspeedAudioRef.current.currentTime = 0; // Reset to start
           lightspeedAudioRef.current.play();
         }
         setTimeout(() => {
-          setLevel(newLevel); // Update level after lightspeed
-          setLightspeed(false);
-        }, 10000); // 10 seconds
+          setLightspeed(false); // End lightspeed after 1.5s
+        }, 1500); // Sync with ThreeScene's 1.5s transition
       }
       return updatedScore;
     });
@@ -164,7 +164,7 @@ const Game: React.FC = () => {
           animation: shakeHud
             ? 'shakeHud 0.3s ease-in-out'
             : lightspeed
-            ? 'lightspeed 10s ease-in-out'
+            ? 'lightspeed 1.5s ease-in-out' // Adjusted to 1.5s
             : 'none',
         }}
       />
@@ -208,7 +208,7 @@ const warpOverlayStyles: React.CSSProperties = {
   width: '100%',
   height: '100%',
   background: 'radial-gradient(circle at center, rgba(0,0,0,1) 0%, rgba(0,0,0,0) 70%)',
-  animation: 'warpTunnel 10s ease-in-out',
+  animation: 'warpTunnel 1.5s ease-in-out', // Adjusted to 1.5s
   zIndex: 4,
   pointerEvents: 'none',
 };
@@ -394,7 +394,7 @@ const keyframes = `
     height: 100%;
     background: linear-gradient(90deg, rgba(255,255,255,0) 0%, rgba(255,255,255,0.5) 50%, rgba(255,255,255,0) 100%);
     background-size: 300% 2px;
-    animation: streak1 10s linear infinite;
+    animation: streak1 1.5s linear infinite;
   }
   .warp-tunnel::after {
     content: '';
@@ -405,7 +405,7 @@ const keyframes = `
     height: 100%;
     background: linear-gradient(90deg, rgba(0,255,255,0) 0%, rgba(0,255,255,0.4) 40%, rgba(0,255,255,0) 100%);
     background-size: 400% 1px;
-    animation: streak2 10s linear infinite reverse;
+    animation: streak2 1.5s linear infinite reverse;
   }
   @keyframes streak1 {
     0% { background-position: 0% 50%; }
