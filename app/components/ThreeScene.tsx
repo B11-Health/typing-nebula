@@ -70,7 +70,7 @@ const ThreeScene: React.FC<ThreeSceneProps> = ({
   const resetScene = () => {
     if (backgroundMusicRef.current) {
       if (backgroundMusicRef.current.isPlaying) backgroundMusicRef.current.stop();
-      backgroundMusicRef.current = null; // Ensure music is cleared for reload
+      backgroundMusicRef.current = null;
     }
 
     if (sceneRef.current) {
@@ -151,26 +151,25 @@ const ThreeScene: React.FC<ThreeSceneProps> = ({
           hitSoundRef.current = sounds.hitSound;
           explosionSoundRef.current = sounds.explosionSound;
           bulletSoundRef.current = sounds.bulletSound;
-          if (gameStarted && healthRef.current > 0) {
+          if (gameStarted && healthRef.current > 0 && !transitionRef.current.active) {
             backgroundMusicRef.current.play();
           }
         }).catch((error: unknown) => {
           console.error('Error loading game sounds:', error);
         });
-      } else if (gameStarted && !backgroundMusicRef.current.isPlaying && healthRef.current > 0) {
+      } else if (gameStarted && !backgroundMusicRef.current.isPlaying && healthRef.current > 0 && !transitionRef.current.active) {
         backgroundMusicRef.current.play();
       }
     };
 
-    // Handle music based on game state
     if (resetSignal > 0) {
       resetScene();
     }
     loadAndPlayMusic();
 
-    // Handle level transition
+    // Handle level transition (extended to 10s)
     if (level > prevLevelRef.current && gameStarted) {
-      transitionRef.current = { active: true, time: 1.5 };
+      transitionRef.current = { active: true, time: 10 }; // 10 seconds to match Game.tsx
       if (backgroundMusicRef.current?.isPlaying) backgroundMusicRef.current.stop();
     }
     prevLevelRef.current = level;
@@ -325,8 +324,8 @@ const ThreeScene: React.FC<ThreeSceneProps> = ({
 
     const updateStarfield = () => {
       if (starsRef.current) {
-        const starPositions = starsRef.current.geometry.attributes.position.array;
-        const speed = transitionRef.current.active ? 5 : 0.1;
+        const starPositions = starsRef.current.geometry.attributes.position.array as Float32Array;
+        const speed = transitionRef.current.active ? 0.5 : 0.1; // Slower speed for 10s duration
         for (let i = 2; i < starPositions.length; i += 3) {
           starPositions[i] += speed;
           if (starPositions[i] > 10) {
@@ -342,7 +341,7 @@ const ThreeScene: React.FC<ThreeSceneProps> = ({
     const updateTransition = (delta: number) => {
       if (transitionRef.current.active && scene) {
         lettersRef.current.forEach((letter) => {
-          letter.mesh.position.z -= 5;
+          letter.mesh.position.z -= 0.5; // Slower speed for 10s duration
           if (letter.mesh.position.z < -10) {
             scene.remove(letter.mesh);
             lettersRef.current = lettersRef.current.filter((l) => l !== letter);
