@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import ThreeScene from './ThreeScene';
+import ComboCanvas from './ComboCanas';
 
 interface OverlayProps {
   children: React.ReactNode;
@@ -165,14 +166,18 @@ const Game: React.FC = () => {
           animation: shakeHud
             ? 'shakeHud 0.3s ease-in-out'
             : lightspeed
-            ? 'lightspeed 10s ease-in-out'
-            : 'none',
+              ? 'lightspeed 10s ease-in-out'
+              : 'none',
         }}
       />
       {lightspeed && <div style={warpOverlayStyles} className="warp-tunnel" />}
       {!gameStarted && !gameOver && <StartScreen onStart={startGame} />}
       {gameStarted && !gameOver && (
-        <HUD score={score} combo={combo} health={health} level={level} />
+        <>
+          <HUD score={score} combo={combo} health={health} level={level} />
+          <ComboCanvas combo={combo} level={level} health={health} gameOver={gameOver} />
+
+        </>
       )}
       {gameOver && <GameOverScreen score={score} onRestart={restartGame} />}
     </div>
@@ -364,8 +369,8 @@ const keyframes = `
   }
   @keyframes lightspeed {
     0% { transform: perspective(1000px) scale(1); filter: blur(0px); opacity: 0.9; }
-    20% { transform: perspective(1000px) scale(1.1) translateZ(-300px); filter: blur(3px); opacity: 1; }
-    80% { transform: perspective(1000px) scale(1.1) translateZ(-500px); filter: blur(5px); opacity: 0.7; }
+    20% { transform: perspective(1000px) scale(1.1) translateZ(-200px); filter: blur(3px); opacity: 1; }
+    80% { transform: perspective(1000px) scale(1.1) translateZ(-250px); filter: blur(5px); opacity: 0.7; }
     100% { transform: perspective(1000px) scale(1); filter: blur(0px); opacity: 0.9; }
   }
   @keyframes warpTunnel {
